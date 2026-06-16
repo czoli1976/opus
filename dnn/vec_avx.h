@@ -845,23 +845,57 @@ static inline void cgemv8x4(float *_out, const opus_int8 *w, const float *scale,
    unsigned char x[MAX_INPUTS];
    /*for (i=0;i<cols;i++) x[i] = 127+floor(.5+127*_x[i]);*/
    vector_ps_to_epi8(x, _x, cols);
-   for (i=0;i<rows;i+=8)
+   i=0;
+#if defined(__AVX2__)
+   /* The int8 GEMV is load-port-bound: every dot-product step needs a weight
+      load plus a re-broadcast of the activation. Process eight 8-row blocks at
+      once so each activation is broadcast a single time and reused across all
+      eight, which cuts the loads per output and gives eight independent
+      accumulators that also hide the vpdpbusds latency. The eight weight
+      sub-streams sit at fixed strides in the existing packing, so no repacking
+      is needed. Guarded to AVX2+: on the 128-bit-emulated SSE paths eight
+      256-bit accumulators would spill. */
    {
-      __m256i vy0;
+      const int stride = cols*8; /* bytes per 8-row block = (cols/4)*32 */
+      for (;i<rows-63;i+=64)
+      {
+         __m256i vy0, vy1, vy2, vy3, vy4, vy5, vy6, vy7;
+         const opus_int8 *w0, *w1, *w2, *w3, *w4, *w5, *w6, *w7;
+         vy0 = vy1 = vy2 = vy3 = vy4 = vy5 = vy6 = vy7 = _mm256_setzero_si256();
+         w0=w; w1=w+stride; w2=w+2*stride; w3=w+3*stride;
+         w4=w+4*stride; w5=w+5*stride; w6=w+6*stride; w7=w+7*stride;
+         for (j=0;j<cols;j+=4)
+         {
+            __m256i vxj = _mm256_broadcastd_epi32(_mm_loadu_si32(&x[j]));
+            vy0 = opus_mm256_dpbusds_epi32(vy0, vxj, _mm256_loadu_si256((const __m256i *)(void*)w0)); w0 += 32;
+            vy1 = opus_mm256_dpbusds_epi32(vy1, vxj, _mm256_loadu_si256((const __m256i *)(void*)w1)); w1 += 32;
+            vy2 = opus_mm256_dpbusds_epi32(vy2, vxj, _mm256_loadu_si256((const __m256i *)(void*)w2)); w2 += 32;
+            vy3 = opus_mm256_dpbusds_epi32(vy3, vxj, _mm256_loadu_si256((const __m256i *)(void*)w3)); w3 += 32;
+            vy4 = opus_mm256_dpbusds_epi32(vy4, vxj, _mm256_loadu_si256((const __m256i *)(void*)w4)); w4 += 32;
+            vy5 = opus_mm256_dpbusds_epi32(vy5, vxj, _mm256_loadu_si256((const __m256i *)(void*)w5)); w5 += 32;
+            vy6 = opus_mm256_dpbusds_epi32(vy6, vxj, _mm256_loadu_si256((const __m256i *)(void*)w6)); w6 += 32;
+            vy7 = opus_mm256_dpbusds_epi32(vy7, vxj, _mm256_loadu_si256((const __m256i *)(void*)w7)); w7 += 32;
+         }
+         _mm256_storeu_ps(&_out[i   ], _mm256_mul_ps(_mm256_cvtepi32_ps(vy0), _mm256_loadu_ps(&scale[i   ])));
+         _mm256_storeu_ps(&_out[i+8 ], _mm256_mul_ps(_mm256_cvtepi32_ps(vy1), _mm256_loadu_ps(&scale[i+8 ])));
+         _mm256_storeu_ps(&_out[i+16], _mm256_mul_ps(_mm256_cvtepi32_ps(vy2), _mm256_loadu_ps(&scale[i+16])));
+         _mm256_storeu_ps(&_out[i+24], _mm256_mul_ps(_mm256_cvtepi32_ps(vy3), _mm256_loadu_ps(&scale[i+24])));
+         _mm256_storeu_ps(&_out[i+32], _mm256_mul_ps(_mm256_cvtepi32_ps(vy4), _mm256_loadu_ps(&scale[i+32])));
+         _mm256_storeu_ps(&_out[i+40], _mm256_mul_ps(_mm256_cvtepi32_ps(vy5), _mm256_loadu_ps(&scale[i+40])));
+         _mm256_storeu_ps(&_out[i+48], _mm256_mul_ps(_mm256_cvtepi32_ps(vy6), _mm256_loadu_ps(&scale[i+48])));
+         _mm256_storeu_ps(&_out[i+56], _mm256_mul_ps(_mm256_cvtepi32_ps(vy7), _mm256_loadu_ps(&scale[i+56])));
+         w += 8*stride;
+      }
+   }
+#endif
+   /* Remainder rows (and the entire matrix on the SSE paths): one 8-row block
+      at a time, four column accumulators to hide the vpdpbusds latency. */
+   for (;i<rows;i+=8)
+   {
+      __m256i vy0, vy1, vy2, vy3;
       __m256 vout;
-      vy0 = _mm256_setzero_si256();
+      vy0 = vy1 = vy2 = vy3 = _mm256_setzero_si256();
       j=0;
-#if 1 /* Unrolling by 4 gives some gain, comment out if it does not. */
-      /* Use four independent accumulators so the (relatively high-latency)
-         vpdpbusds on the VNNI path is not serialized on a single register;
-         this keeps several int8 dot products in flight. The AVX2 emulation
-         accumulates with wrapping 32-bit adds, so the split is exact there;
-         on VNNI it is exact whenever the per-output sum does not saturate
-         int32, which holds for the quantized weights used in practice. */
-      __m256i vy1, vy2, vy3;
-      vy1 = _mm256_setzero_si256();
-      vy2 = _mm256_setzero_si256();
-      vy3 = _mm256_setzero_si256();
       for (;j<cols-12;j+=16)
       {
          __m256i vxj;
@@ -886,7 +920,6 @@ static inline void cgemv8x4(float *_out, const opus_int8 *w, const float *scale,
       vy0 = _mm256_add_epi32(vy0, vy1);
       vy2 = _mm256_add_epi32(vy2, vy3);
       vy0 = _mm256_add_epi32(vy0, vy2);
-#endif
       for (;j<cols;j+=4)
       {
          __m256i vxj;
