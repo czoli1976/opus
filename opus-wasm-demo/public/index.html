@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opus 1.6.1 WASM + Vonage Video API Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f111a; color: #e0e4ef; min-height: 100vh; }
+
+  header { background: #1a1d2e; border-bottom: 1px solid #2d3150; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; }
+  .badge { font-size: 0.72rem; background: #7c3aed; color: #fff; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+  .badge.green { background: #059669; }
+
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+
+  .card { background: #1a1d2e; border: 1px solid #2d3150; border-radius: 10px; padding: 20px; }
+  .card h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: #7c83a8; margin-bottom: 16px; }
+
+  /* video containers */
+  .videos { display: flex; gap: 12px; flex-wrap: wrap; }
+  .video-wrap { flex: 1; min-width: 200px; background: #0f111a; border-radius: 8px; overflow: hidden; position: relative; aspect-ratio: 4/3; }
+  .video-wrap label { position: absolute; bottom: 6px; left: 8px; font-size: 0.72rem; background: rgba(0,0,0,.65); padding: 2px 6px; border-radius: 4px; z-index: 2; }
+  .video-wrap > div { width: 100%; height: 100%; }
+
+  /* controls */
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .row label { font-size: 0.82rem; color: #9aa0c0; min-width: 130px; }
+  input[type=range] { flex: 1; min-width: 80px; accent-color: #7c3aed; }
+  .val { font-size: 0.82rem; color: #e0e4ef; min-width: 50px; text-align: right; }
+  input[type=text] { background: #0f111a; border: 1px solid #2d3150; color: #e0e4ef; border-radius: 6px; padding: 6px 10px; font-size: 0.85rem; width: 100%; }
+
+  /* toggles */
+  .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .toggle-row label { font-size: 0.82rem; color: #9aa0c0; flex: 1; }
+  .switch { position: relative; width: 42px; height: 22px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider-toggle { position: absolute; inset: 0; background: #2d3150; border-radius: 22px; cursor: pointer; transition: .25s; }
+  .slider-toggle:before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .25s; }
+  input:checked + .slider-toggle { background: #7c3aed; }
+  input:checked + .slider-toggle:before { transform: translateX(20px); }
+
+  /* buttons */
+  .btn { padding: 9px 20px; border: none; border-radius: 7px; cursor: pointer; font-size: 0.88rem; font-weight: 600; transition: .15s; }
+  .btn-primary { background: #7c3aed; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #6d28d9; }
+  .btn-danger  { background: #dc2626; color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* stats */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-box { background: #0f111a; border-radius: 8px; padding: 12px 14px; }
+  .stat-box .label { font-size: 0.72rem; color: #7c83a8; margin-bottom: 4px; }
+  .stat-box .value { font-size: 1.3rem; font-weight: 700; color: #e0e4ef; }
+  .stat-box .value.green { color: #34d399; }
+  .stat-box .value.red   { color: #f87171; }
+
+  /* log */
+  #log { background: #0a0b13; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 0.76rem; max-height: 180px; overflow-y: auto; color: #9aa0c0; }
+  #log .info  { color: #60a5fa; }
+  #log .ok    { color: #34d399; }
+  #log .warn  { color: #fbbf24; }
+  #log .error { color: #f87171; }
+
+  /* banner */
+  #status-banner { padding: 8px 24px; font-size: 0.82rem; text-align: center; background: #1e1b4b; color: #a5b4fc; display: none; }
+  #status-banner.visible { display: block; }
+
+  @media (max-width: 640px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Opus 1.6.1 WASM + Vonage Video API</h1>
+  <span class="badge">DRED · OSCE · Deep PLC</span>
+  <span class="badge green" id="wasm-badge" style="display:none">WASM loaded</span>
+</header>
+
+<div id="status-banner"></div>
+
+<div class="layout">
+
+  <!-- LEFT: Vonage session -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Vonage Session</h2>
+    <div class="row" style="margin-bottom:14px;">
+      <label>API Key</label>
+      <input type="text" id="api-key" placeholder="Your Vonage Video API Key" />
+    </div>
+    <div class="row" style="margin-bottom:14px;">
+      <label>Session ID</label>
+      <input type="text" id="session-id" placeholder="sessionId from your server" />
+    </div>
+    <div class="row" style="margin-bottom:14px;">
+      <label>Token</label>
+      <input type="text" id="token" placeholder="JWT token from your server" />
+    </div>
+    <div class="row">
+      <button class="btn btn-primary" id="btn-connect">Connect &amp; Publish</button>
+      <button class="btn btn-danger"  id="btn-disconnect" disabled>Disconnect</button>
+    </div>
+    <div class="videos" style="margin-top:16px;">
+      <div class="video-wrap">
+        <div id="publisher"></div>
+        <label>Local (WASM Opus)</label>
+      </div>
+      <div class="video-wrap">
+        <div id="subscriber"></div>
+        <label>Remote</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <h2>Opus 1.6.1 Settings</h2>
+
+    <div class="row">
+      <label>Bitrate</label>
+      <input type="range" id="bitrate" min="6000" max="128000" step="2000" value="32000">
+      <span class="val" id="bitrate-val">32 kbps</span>
+    </div>
+    <div class="row">
+      <label>Frame size</label>
+      <input type="range" id="frame-ms" min="10" max="60" step="10" value="20">
+      <span class="val" id="frame-ms-val">20 ms</span>
+    </div>
+    <div class="row">
+      <label>Loss simulation</label>
+      <input type="range" id="loss-pct" min="0" max="50" step="1" value="0">
+      <span class="val" id="loss-pct-val">0 %</span>
+    </div>
+    <div class="row">
+      <label>DRED duration</label>
+      <input type="range" id="dred-ms" min="0" max="240" step="20" value="120">
+      <span class="val" id="dred-ms-val">120 ms</span>
+    </div>
+
+    <div class="toggle-row">
+      <label>Enable DRED (Deep Redundancy)</label>
+      <label class="switch"><input type="checkbox" id="dred-on" checked><span class="slider-toggle"></span></label>
+    </div>
+    <div class="toggle-row">
+      <label>Enable Inband FEC</label>
+      <label class="switch"><input type="checkbox" id="fec-on" checked><span class="slider-toggle"></span></label>
+    </div>
+    <div class="toggle-row">
+      <label>Mute Vonage mic (use WASM track only)</label>
+      <label class="switch"><input type="checkbox" id="mute-vonage" checked><span class="slider-toggle"></span></label>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <h2>Live Statistics</h2>
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="label">Packets encoded</div>
+        <div class="value" id="s-encoded">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Packets lost (sim)</div>
+        <div class="value red" id="s-lost">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">DRED recoveries</div>
+        <div class="value green" id="s-dred">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Bytes / packet</div>
+        <div class="value" id="s-bytes">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Bandwidth mode</div>
+        <div class="value" id="s-bw" style="font-size:.9rem;">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">DRED status</div>
+        <div class="value" id="s-dred-status" style="font-size:.9rem;">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Event Log</h2>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<!-- Vonage Video JS SDK (2.x) -->
+<script src="https://static.opentok.com/v2/js/opentok.min.js"></script>
+
+<script type="module">
+/* ════════════════════════════════════════════════
+   State
+   ════════════════════════════════════════════════ */
+let audioCtx    = null;
+let workletNode = null;
+let micStream   = null;
+let wasm_track  = null;   /* MediaStreamTrack from WASM processor output */
+
+let session   = null;
+let publisher = null;
+
+/* ════════════════════════════════════════════════
+   Logging
+   ════════════════════════════════════════════════ */
+const logEl = document.getElementById('log');
+function log(msg, cls = 'info') {
+    const ts  = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = `[${ts}] ${msg}`;
+    logEl.prepend(div);
+    if (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+}
+
+function banner(msg, hide = false) {
+    const el = document.getElementById('status-banner');
+    el.textContent = msg;
+    el.className   = hide ? '' : 'visible';
+}
+
+/* ════════════════════════════════════════════════
+   UI bindings
+   ════════════════════════════════════════════════ */
+function bindRange(id, valId, fmt, onChange) {
+    const inp = document.getElementById(id);
+    const val = document.getElementById(valId);
+    val.textContent = fmt(inp.value);
+    inp.addEventListener('input', () => { val.textContent = fmt(inp.value); onChange(inp.value); });
+}
+
+bindRange('bitrate',  'bitrate-val',  v => `${Math.round(v/1000)} kbps`, v => workletNode?.port.postMessage({ cmd: 'setBitrate', bps: +v }));
+bindRange('loss-pct', 'loss-pct-val', v => `${v} %`,                     v => workletNode?.port.postMessage({ cmd: 'setLoss',    lossPercent: +v }));
+bindRange('dred-ms',  'dred-ms-val',  v => `${v} ms`,                    v => {
+    if (document.getElementById('dred-on').checked)
+        workletNode?.port.postMessage({ cmd: 'setDred', durationMs: +v });
+});
+bindRange('frame-ms', 'frame-ms-val', v => `${v} ms`, () => log('Restart session to apply new frame size.', 'warn'));
+
+document.getElementById('dred-on').addEventListener('change', (e) => {
+    const ms = e.target.checked ? +document.getElementById('dred-ms').value : 0;
+    workletNode?.port.postMessage({ cmd: 'setDred', durationMs: ms });
+    log(`DRED ${e.target.checked ? 'enabled' : 'disabled'}`);
+});
+
+document.getElementById('fec-on').addEventListener('change', (e) => {
+    workletNode?.port.postMessage({ cmd: 'setFec', enabled: e.target.checked });
+    log(`Inband FEC ${e.target.checked ? 'enabled' : 'disabled'}`);
+});
+
+document.getElementById('mute-vonage').addEventListener('change', (e) => {
+    if (publisher) publisher.publishAudio(!e.target.checked);
+});
+
+/* ════════════════════════════════════════════════
+   WASM AudioWorklet setup
+   ════════════════════════════════════════════════ */
+async function setupWasmAudio() {
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+
+    audioCtx = new AudioContext({ sampleRate: 48000 });
+    await audioCtx.audioWorklet.addModule('/worklet/opus-processor.js');
+
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 48000, channelCount: 1 }, video: false });
+    const micSource = audioCtx.createMediaStreamSource(micStream);
+
+    workletNode = new AudioWorkletNode(audioCtx, 'opus-processor', {
+        numberOfInputs:  1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+    });
+
+    workletNode.port.onmessage = (e) => onWorkletMsg(e.data);
+
+    const frameMs = +document.getElementById('frame-ms').value;
+    const dredOn  = document.getElementById('dred-on').checked;
+
+    workletNode.port.postMessage({
+        cmd:           'init',
+        wasmUrl:       '/opus-wasm.js',
+        sampleRate:    48000,
+        frameMs,
+        bitrate:       +document.getElementById('bitrate').value,
+        dredDurationMs: dredOn ? +document.getElementById('dred-ms').value : 0,
+        fecEnabled:    document.getElementById('fec-on').checked,
+        lossPercent:   +document.getElementById('loss-pct').value,
+    });
+
+    micSource.connect(workletNode);
+
+    /* tap the decoded output as a MediaStream */
+    const destNode = audioCtx.createMediaStreamDestination();
+    workletNode.connect(destNode);
+    wasm_track = destNode.stream.getAudioTracks()[0];
+    log('AudioWorklet + WASM Opus initializing…');
+}
+
+function onWorkletMsg(msg) {
+    switch (msg.type) {
+        case 'ready':
+            document.getElementById('wasm-badge').style.display = '';
+            log(`WASM Opus 1.6.1 ready — DRED ${msg.dredAvailable ? '✓ available' : '✗ not compiled'}`, 'ok');
+            break;
+        case 'stats':
+            document.getElementById('s-encoded').textContent  = msg.packetsEncoded.toLocaleString();
+            document.getElementById('s-lost').textContent     = msg.packetsLost.toLocaleString();
+            document.getElementById('s-dred').textContent     = msg.dredRecoveries.toLocaleString();
+            document.getElementById('s-bytes').textContent    = msg.bytesPerPacket + ' B';
+            document.getElementById('s-bw').textContent       = msg.bandwidthStr;
+            document.getElementById('s-dred-status').textContent =
+                msg.dredAvailable
+                    ? (msg.dredEnabled ? '● ON' : '○ OFF')
+                    : 'Not compiled';
+            document.getElementById('s-dred-status').style.color =
+                msg.dredEnabled ? '#34d399' : '#f87171';
+            break;
+        case 'error':
+            log(`Worklet error: ${msg.message}`, 'error');
+            break;
+    }
+}
+
+/* ════════════════════════════════════════════════
+   Vonage Video API
+   ════════════════════════════════════════════════ */
+document.getElementById('btn-connect').addEventListener('click', async () => {
+    const apiKey    = document.getElementById('api-key').value.trim();
+    const sessionId = document.getElementById('session-id').value.trim();
+    const token     = document.getElementById('token').value.trim();
+
+    if (!apiKey || !sessionId || !token) {
+        log('Please fill in API Key, Session ID and Token.', 'warn');
+        return;
+    }
+
+    banner('Setting up WASM audio…');
+    await setupWasmAudio();
+
+    /* wait until WASM is ready */
+    await new Promise((res) => {
+        const check = setInterval(() => {
+            if (document.getElementById('wasm-badge').style.display !== 'none') {
+                clearInterval(check); res();
+            }
+        }, 200);
+    });
+
+    banner('Connecting to Vonage session…');
+    log(`Connecting to session ${sessionId.slice(0,20)}…`);
+
+    session = OT.initSession(apiKey, sessionId);
+
+    session.on('streamCreated', (e) => {
+        log(`Remote stream received: ${e.stream.streamId.slice(0,12)}`);
+        session.subscribe(e.stream, 'subscriber', {
+            insertMode: 'append',
+            width:  '100%',
+            height: '100%',
+        }, (err) => {
+            if (err) log(`Subscribe error: ${err.message}`, 'error');
+            else log('Subscribed to remote stream.', 'ok');
+        });
+    });
+
+    session.on('sessionDisconnected', () => {
+        log('Session disconnected.', 'warn');
+        banner('Disconnected', true);
+        resetUI();
+    });
+
+    session.connect(token, (err) => {
+        if (err) { log(`Connect error: ${err.message}`, 'error'); banner('Connection failed'); return; }
+
+        log('Session connected. Publishing with WASM Opus audio track…', 'ok');
+        banner('');
+
+        const muteVonage = document.getElementById('mute-vonage').checked;
+
+        publisher = OT.initPublisher('publisher', {
+            insertMode:  'append',
+            width:       '100%',
+            height:      '100%',
+            audioSource: wasm_track,      /* ← WASM Opus 1.6.1 track */
+            videoSource: null,            /* audio-only; set to 'camera' for video */
+            publishAudio: !muteVonage,
+            name:        'Opus-1.6.1-WASM',
+        }, (perr) => {
+            if (perr) { log(`Publisher init error: ${perr.message}`, 'error'); return; }
+            session.publish(publisher, (pubErr) => {
+                if (pubErr) log(`Publish error: ${pubErr.message}`, 'error');
+                else log('Publishing audio via WASM Opus 1.6.1!', 'ok');
+            });
+        });
+
+        document.getElementById('btn-connect').disabled    = true;
+        document.getElementById('btn-disconnect').disabled = false;
+    });
+});
+
+document.getElementById('btn-disconnect').addEventListener('click', () => {
+    if (session) session.disconnect();
+    cleanup();
+    resetUI();
+    log('Disconnected.', 'warn');
+    banner('', true);
+});
+
+function cleanup() {
+    try { publisher?.destroy(); } catch(_){}
+    try { session?.disconnect(); } catch(_){}
+    try { workletNode?.disconnect(); } catch(_){}
+    try { audioCtx?.close(); } catch(_){}
+    micStream?.getTracks().forEach(t => t.stop());
+    publisher = session = workletNode = audioCtx = micStream = wasm_track = null;
+}
+
+function resetUI() {
+    document.getElementById('btn-connect').disabled    = false;
+    document.getElementById('btn-disconnect').disabled = true;
+    document.getElementById('wasm-badge').style.display = 'none';
+}
+</script>
+</body>
+</html>

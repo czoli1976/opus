@@ -1,0 +1,11 @@
+{
+  "name": "opus-wasm-vonage-demo",
+  "version": "1.0.0",
+  "description": "Opus 1.6.1 WASM encoder/decoder with DRED published via Vonage Video API",
+  "main": "server.js",
+  "scripts": {
+    "build": "bash build_wasm.sh",
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" }
+}
