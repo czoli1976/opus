@@ -83,31 +83,31 @@ Methodology: 60s 16 kHz mono speech+noise clip, `opus_demo voip 16000 1 24000 -d
 - **AVX2+tiling** = branch kernel, arch capped to 4
 - **VNNI+tiling** = branch as-is (arch=5, EVEX VNNI dispatch)
 
-### Raw times (seconds, best of 8)
+### Raw times (seconds, best of 10)
 
 | loss% | main | AVX2+tiling | VNNI+tiling |
 |---|---|---|---|
-| 0 | 0.3939 | 0.3685 | 0.3785 |
-| 10 | 1.3858 | 1.3903 | 1.3848 |
-| 30 | 1.5973 | 1.5469 | 1.5635 |
-| 50 | 1.6944 | 1.6902 | 1.6225 |
-| 60 | 1.6784 | 1.7059 | 1.6680 |
-| 70 | 1.7030 | 1.6925 | 1.6375 |
-| 90 | 1.5578 | 1.5503 | 1.5043 |
+| 0 | 0.3821 | 0.3860 | 0.3789 |
+| 10 | 1.3913 | 1.3826 | 1.3973 |
+| 30 | 1.5876 | 1.5929 | 1.5718 |
+| 50 | 1.6950 | 1.6746 | 1.6359 |
+| 60 | 1.7035 | 1.6887 | 1.6501 |
+| 70 | 1.7320 | 1.6991 | 1.6521 |
+| 90 | 1.5742 | 1.5458 | 1.5125 |
 
 ### Speedup vs main
 
 | loss% | AVX2+tiling | VNNI+tiling | Cascade Lake VNNI+tiling (ref) |
 |---|---|---|---|
-| 0% | 1.069× | 1.041× | 1.01× |
-| 10% | 0.997× | 1.001× | 1.03× |
-| 30% | 1.033× | 1.022× | 1.04× |
-| 50% | 1.002× | 1.044× | 1.04× |
-| 60% | 0.984× | 1.006× | 1.06× |
-| 70% | 1.006× | 1.040× | 1.07× |
-| 90% | 1.005× | 1.036× | 1.05× |
+| 0% | 0.990× | 1.008× | 1.01× |
+| 10% | 1.006× | 0.996× | 1.03× |
+| 30% | 0.997× | 1.010× | 1.04× |
+| 50% | 1.012× | 1.036× | 1.04× |
+| 60% | 1.009× | 1.032× | 1.06× |
+| 70% | 1.019× | **1.048×** | 1.07× |
+| 90% | 1.018× | **1.041×** | 1.05× |
 
-> Best-of-8 runs. The previous best-of-4 had a 50% loss outlier (main ran 2.03s vs expected ~1.69s) that inflated speedup to 1.23× there; this run eliminates it. VNNI+tiling shows a consistent 1.02–1.04× advantage at ≥30% loss.
+> Best-of-10 runs. AVX2+tiling is noise-level vs main (~1.0×); VNNI+tiling delivers a consistent 1.03–1.05× at ≥50% loss, peaking at 1.048× at 70%.
 
 ![SPR speedup chart](spr_speedup.png)
 
