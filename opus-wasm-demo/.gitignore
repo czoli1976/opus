@@ -1,3 +1,4 @@
 wasm-build/
 build/
 node_modules/
+.opus-src/
