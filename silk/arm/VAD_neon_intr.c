@@ -152,7 +152,17 @@ opus_int silk_VAD_GetSA_Q8_neon(                    /* O    Return value, 0 if s
                 acc_s32x4 = vmlal_s16( acc_s32x4, vget_high_s16( x_s16x8 ), vget_high_s16( x_s16x8 ) );
             }
 
-            sumSquared += vaddvq_s32( acc_s32x4 );
+            /* Horizontal sum of the 4 int32 accumulators.  vaddvq_s32 is
+               AArch64-only; vpadd_s32 + lane extracts is the portable form
+               (ARMv7 NEON compatible) and compiles to the identical addp on
+               AArch64. */
+            {
+                int32x2_t acc_lo = vget_low_s32( acc_s32x4 );
+                int32x2_t acc_hi = vget_high_s32( acc_s32x4 );
+                int32x2_t acc_pair = vpadd_s32( acc_lo, acc_hi );
+                sumSquared += vget_lane_s32( acc_pair, 0 );
+                sumSquared += vget_lane_s32( acc_pair, 1 );
+            }
 
             for( ; i < dec_subframe_length; i++ ) {
                 /* The energy will be less than dec_subframe_length * ( silk_int16_MIN / 8 ) ^ 2.            */
